@@ -2,7 +2,7 @@ import os
 import json
 import asyncio
 import random
-from typing import Dict, Any
+from typing import Dict, Any, List, Tuple
 
 # Lightweight implementation that attempts to call OpenAI (gpt-4o) and Google Gemini (gemini-3.1-pro-preview).
 # If SDKs are not available at runtime, falls back to a deterministic mock to keep behavior predictable.
@@ -48,6 +48,9 @@ class LLMJudge:
             "3. Hallucination-free: Does it avoid making up facts not present in the ground truth?\n\n"
             "Score on a 1-5 scale (1 worst, 5 best). Return JSON: {\"score\": float, \"reasoning\": \"str\"}. Be concise."
         )
+
+        # Track score pairs to compute dataset-level Cohen's Kappa.
+        self._score_pairs: List[Tuple[int, int]] = []
 
     async def _call_gpt(self, question: str, answer: str, ground_truth: str, max_retries: int = 4) -> Dict[str, Any]:
         prompt = (
@@ -155,10 +158,12 @@ class LLMJudge:
         score_b = float(b_res.get("score", 0))
         avg_score = (score_a + score_b) / 2.0
 
-        # Calculate agreement rate using Quadratic Weighted Kappa approximation for a single instance
-        # Formula: 1 - ((score_a - score_b)^2 / (max_score - min_score)^2)
-        # Here max_score = 5, min_score = 1, so denominator is 16.0
-        agreement_rate = max(0.0, 1.0 - ((score_a - score_b) ** 2) / 16.0)
+        # Cohen's Kappa needs a set of rated samples (not a single sample).
+        # We discretize each judge score to labels 1..5 and compute kappa on all seen pairs.
+        label_a = _to_label(score_a, min_label=1, max_label=5)
+        label_b = _to_label(score_b, min_label=1, max_label=5)
+        self._score_pairs.append((label_a, label_b))
+        agreement_rate = _cohen_kappa(self._score_pairs, labels=[1, 2, 3, 4, 5])
 
         conflict_resolved = False
         tie_break_reasoning = None
@@ -299,6 +304,41 @@ def _sum_optional(a, b):
         return (float(a) if a is not None else 0.0) + (float(b) if b is not None else 0.0)
     except Exception:
         return None
+
+
+def _to_label(score: float, min_label: int = 1, max_label: int = 5) -> int:
+    label = int(round(float(score)))
+    if label < min_label:
+        return min_label
+    if label > max_label:
+        return max_label
+    return label
+
+
+def _cohen_kappa(score_pairs: List[Tuple[int, int]], labels: List[int]) -> float:
+    """Standard Cohen's Kappa computed from confusion matrix over all pairs."""
+    n = len(score_pairs)
+    if n == 0:
+        return 0.0
+
+    idx = {label: i for i, label in enumerate(labels)}
+    k = len(labels)
+    matrix = [[0 for _ in range(k)] for _ in range(k)]
+
+    for a, b in score_pairs:
+        if a in idx and b in idx:
+            matrix[idx[a]][idx[b]] += 1
+
+    observed = sum(matrix[i][i] for i in range(k)) / n
+
+    row_marginals = [sum(matrix[i][j] for j in range(k)) / n for i in range(k)]
+    col_marginals = [sum(matrix[i][j] for i in range(k)) / n for j in range(k)]
+    expected = sum(row_marginals[i] * col_marginals[i] for i in range(k))
+
+    denom = 1.0 - expected
+    if denom <= 1e-12:
+        return 1.0 if observed >= 1.0 else 0.0
+    return (observed - expected) / denom
 
 
 def _mock_score(answer: str, ground_truth: str, provider: str = "mock") -> Dict[str, Any]:
