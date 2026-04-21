@@ -1,4 +1,5 @@
 from typing import List, Dict
+from statistics import mean
 
 class RetrievalEvaluator:
     def __init__(self):
@@ -23,10 +24,19 @@ class RetrievalEvaluator:
                 return 1.0 / (i + 1)
         return 0.0
 
-    async def evaluate_batch(self, dataset: List[Dict]) -> Dict:
+    async def evaluate_batch(self, dataset: List[Dict], agent_responses: List[Dict]) -> Dict:
         """
         Chạy eval cho toàn bộ bộ dữ liệu.
         Dataset cần có trường 'expected_retrieval_ids' và Agent trả về 'retrieved_ids'.
         """
-        # Placeholder logic
-        return {"avg_hit_rate": 0.85, "avg_mrr": 0.72}
+        results = []
+        for case, resp in zip(dataset, agent_responses):
+            hit = self.calculate_hit_rate(case["expected_retrieval_ids"], resp["retrieved_ids"])
+            mrr = self.calculate_mrr(case["expected_retrieval_ids"], resp["retrieved_ids"])
+            results.append({"hit_rate": hit, "mrr": mrr, "question": case["question"]})
+            
+        return {
+            "avg_hit_rate": mean(r["hit_rate"] for r in results) if results else 0.0,
+            "avg_mrr": mean(r["mrr"] for r in results) if results else 0.0,
+            "per_case": results
+        }
