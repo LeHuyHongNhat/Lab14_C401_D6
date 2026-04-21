@@ -40,7 +40,10 @@ class MainAgent:
         assert version in ("v1", "v2"), "version must be 'v1' or 'v2'"
         self.version = version
         self.name = f"RAGAgent-{version}"
-        self._doc_store = DocumentStore()
+        # V1: large chunks (500 tokens) — more context per chunk, less precise
+        # V2: small chunks (200 tokens) — more precise retrieval, better reranking
+        chunk_size = 500 if version == "v1" else 200
+        self._doc_store = DocumentStore(chunk_size=chunk_size)
         self._client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
         # Keep V1 intentionally simple and let V2 use stronger retrieval/generation settings.

@@ -9,11 +9,12 @@
 Báo cáo này đại diện cho kết quả phân tích cuối cùng sau khi hệ thống đã được tích hợp toàn bộ các module kỹ thuật từ tất cả thành viên trong nhóm. Mục tiêu của báo cáo là không chỉ chỉ ra các điểm yếu hiện tại của Agent V2 mà còn cung cấp một lộ trình (Roadmap) kỹ thuật để đạt được sự hoàn hảo trong phiên bản V3.
 
 ### 1.1. Thông số Kỹ thuật
-- **Tập dữ liệu:** 30 cases được tinh lọc (Gold Standard Dataset).
-- **Mô hình Judge:** Hệ thống Multi-Judge (GPT-4o + Gemini 1.5 Pro).
-- **Kết quả V1 (Baseline):** 4.58/5.0
-- **Kết quả V2 (Optimized):** 4.77/5.0
-- **Quyết định Release Gate:** **APPROVE** ✅ (V2 vượt trội hơn V1 về cả độ chính xác và tính chuyên nghiệp của câu trả lời).
+- **Tập dữ liệu:** 50 cases (Gold Standard Dataset).
+- **Mô hình Judge:** Hệ thống Multi-Judge (GPT-4o + Gemini).
+- **Kết quả V1 (Baseline):** 4.62/5.0 | Hit Rate: 0.98 | MRR: 0.960
+- **Kết quả V2 (Optimized):** 4.51/5.0 | Hit Rate: 0.98 | MRR: 0.943
+- **Agreement Rate:** 0.918
+- **Quyết định Release Gate:** **WARN** ⚠️ (V2 có score thấp hơn V1 nhưng chi phí giảm, Hit Rate giữ nguyên).
 
 ### 1.2. Phương pháp luận
 Chúng tôi sử dụng phương pháp **5 Whys (Năm câu hỏi Tại sao)** để truy vết từ triệu chứng bề mặt (Symptom) đến nguyên nhân gốc rễ (Root Cause) trong kiến trúc hệ thống RAG (Retrieval-Augmented Generation).
