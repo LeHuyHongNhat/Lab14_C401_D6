@@ -59,4 +59,19 @@ Bộ **Claude (Hand-crafted)** bao phủ các case "phá vỡ hệ thống" (Bre
 > 2. **Lý do chiến thuật:** Khi viết báo cáo **Failure Analysis (Nguyễn Quế Sơn)**, việc sử dụng bộ dataset khó này sẽ tạo ra nhiều "lỗi hệ thống" (Root Cause) để phân tích "5 Whys" sâu hơn, thay vì một hệ thống chạy hoàn hảo 100% nhưng không có giá trị học thuật.
 
 ---
+
+## 💎 4. Đề xuất Kết hợp: "The Master Golden Set 100"
+
+Từ kết quả phân tích, tôi đề xuất team thực hiện kết hợp cả 2 bộ dữ liệu của GPT-4o và Claude thành một file duy nhất: **`master_golden_set.jsonl`** (100 câu hỏi).
+
+### Lợi ích chiến lược:
+1.  **Độ tin cậy tối cao:** 100 câu hỏi duy nhất (0% trùng lặp) giúp các chỉ số Hit Rate/MRR đạt độ chính xác thống kê vượt trội.
+2.  **Đo lường Performance:** Thách thức bộ máy **Async Runner** xử lý 100 cases dưới 2 phút (chứng minh kỹ năng xử lý Concurrency của team).
+3.  **Toàn diện hóa Failure Analysis:** Với 100 cases, team sẽ có đủ mẫu lỗi từ "ngớ ngẩn" (do retrieval sai) đến "tinh vi" (do logic bias) để viết báo cáo Phân tích thất bại 5 Whys.
+
+### Cách triển khai:
+Team chỉ cần chạy lệnh merge đơn giản:
+`cat data/golden_set.jsonl data/claude_golden_set.jsonl > data/master_golden_set.jsonl`
+
+---
 *Người lập báo cáo: Nguyễn Quốc Khánh (Data Engineer)*
