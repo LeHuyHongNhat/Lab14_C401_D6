@@ -38,16 +38,17 @@ async def run_benchmark_with_results(agent_version: str):
         return None, None
 
     runner = BenchmarkRunner(MainAgent(), ExpertEvaluator(), MultiModelJudge())
-    results = await runner.run_all(dataset)
+    results, performance = await runner.run_all(dataset)
 
     total = len(results)
     summary = {
         "metadata": {"version": agent_version, "total": total, "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")},
         "metrics": {
-            "avg_score": sum(r["judge"]["final_score"] for r in results) / total,
-            "hit_rate": sum(r["ragas"]["retrieval"]["hit_rate"] for r in results) / total,
-            "agreement_rate": sum(r["judge"]["agreement_rate"] for r in results) / total
-        }
+            "avg_score": sum(r["judge"].get("final_score", 0) for r in results) / total if total else 0.0,
+            "hit_rate": sum(r["ragas"]["retrieval"].get("hit_rate", 0) for r in results) / total if total else 0.0,
+            "agreement_rate": sum(r["judge"].get("agreement_rate", 0) for r in results) / total if total else 0.0
+        },
+        "performance": performance
     }
     return results, summary
 
