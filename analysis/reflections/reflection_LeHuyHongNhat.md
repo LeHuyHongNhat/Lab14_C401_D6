@@ -7,9 +7,25 @@
 
 | Module | File | Nhiệm vụ |
 |---|---|---|
-| Multi-Judge Engine | `engine/llm_judge.py` | Dual LLM Judge (GPT-5 + Gemini 3.1 Pro), Cohen's Kappa, tie-breaker, position bias |
+| Multi-Judge Engine | `engine/llm_judge.py` | Dual LLM Judge (GPT + Gemini), Cohen's Kappa, tie-breaker, position bias |
 | Benchmark Runner | `engine/runner.py` | Async semaphore runner, cost tracking |
 | Pipeline chính | `main.py` | Orchestration, Release Gate multi-criteria, regression report |
+
+---
+
+## 1.1 Bằng chứng commit (Engineering Contribution)
+
+Để chứng minh contribution theo rubric cá nhân, dưới đây là các commit chính của tôi trên nhánh `nhat`:
+
+| Commit | Mục tiêu | Kết quả kỹ thuật |
+|---|---|---|
+| `d58b7ec` | Implement real dual-judge pipeline | Thêm multi-judge thật, đồng thuận theo QWK, cost tracking |
+| `ed8b82f` | Fix runner/main integration | Sửa semaphore/concurrency flow và release gate end-to-end |
+| `4630686` | Nâng cấp OpenAI/Gemini client path | Chuyển sang client hiện đại, retry/backoff, fallback model |
+| `869c1d6` | Sửa lỗi gọi Gemini API | Dùng API path tương thích để giảm lỗi runtime |
+| `60550a7` | Viết reflection kỹ thuật | Ghi rõ metrics, position bias, release gate rationale |
+
+Các commit này bao phủ module phức tạp đúng rubric: `engine/llm_judge.py`, `engine/runner.py`, `main.py`.
 
 ---
 
@@ -253,3 +269,35 @@ Việc implement Dual LLM Judge với Cohen's Kappa và Release Gate multi-crite
 4. **Phát hiện bias hệ thống** → Position Bias check để đảm bảo đánh giá công bằng
 
 Toàn bộ pipeline chạy async với `asyncio.Semaphore(5)` giúp xử lý 50 cases trong vòng ~60 giây thay vì ~10 phút nếu chạy tuần tự.
+
+---
+
+## 7. Kết quả thực nghiệm và tác động
+
+Số liệu thực từ `reports/summary.json` (run gần nhất):
+
+| Chỉ số | Giá trị |
+|---|---|
+| `avg_score` | 4.16 |
+| `hit_rate` | 0.96 |
+| `mrr` | 0.90 |
+| `agreement_rate` | 0.9319 |
+| `total_cost_usd` | 0.1924 |
+| `total_time_seconds` | 978.71 |
+| `regression decision` | BLOCK |
+
+Ý nghĩa kỹ thuật:
+- Agreement cao (0.9319) cho thấy hai judge có mức đồng thuận tốt, giảm rủi ro đánh giá đơn lẻ.
+- Retrieval metrics cao (`hit_rate`, `mrr`) xác nhận truy xuất tốt hơn là chỉ nhìn điểm generation.
+- Release Gate trả `BLOCK` khi delta không đạt ngưỡng, chứng minh pipeline có khả năng chặn bản cập nhật kém chất lượng.
+
+---
+
+## 8. Giải trình lựa chọn model judge
+
+Theo kế hoạch ban đầu, nhóm cân nhắc cặp GPT + Claude. Trong quá trình triển khai thực tế, tôi dùng cặp GPT + Gemini để bảo đảm:
+- Đa dạng hóa judge (không cùng họ model).
+- Độ sẵn sàng API ổn định trong môi trường chạy lab tại thời điểm benchmark.
+- Giữ đúng yêu cầu rubric: có từ 2 judge, có agreement, có conflict resolution tự động.
+
+Tôi vẫn giữ thiết kế mở để có thể thay Gemini bằng Claude trong cùng interface judge nếu team cần đối chiếu chéo thêm.
