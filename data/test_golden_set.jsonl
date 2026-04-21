@@ -1,0 +1,10 @@
+{"question": "Q0", "expected_answer": "A0", "expected_retrieval_ids": ["doc0"]}
+{"question": "Q1", "expected_answer": "A1", "expected_retrieval_ids": ["doc1"]}
+{"question": "Q2", "expected_answer": "A2", "expected_retrieval_ids": ["doc2"]}
+{"question": "Q3", "expected_answer": "A3", "expected_retrieval_ids": ["doc3"]}
+{"question": "Q4", "expected_answer": "A4", "expected_retrieval_ids": ["doc4"]}
+{"question": "Q5", "expected_answer": "A5", "expected_retrieval_ids": ["doc5"]}
+{"question": "Q6", "expected_answer": "A6", "expected_retrieval_ids": ["doc6"]}
+{"question": "Q7", "expected_answer": "A7", "expected_retrieval_ids": ["doc7"]}
+{"question": "Q8", "expected_answer": "A8", "expected_retrieval_ids": ["doc8"]}
+{"question": "Q9", "expected_answer": "A9", "expected_retrieval_ids": ["doc9"]}
