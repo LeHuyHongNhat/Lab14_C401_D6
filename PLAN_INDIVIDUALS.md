@@ -244,9 +244,9 @@ Thay thế `MainAgent` mock bằng **RAG agent thực** với Vector DB, có `re
 ### ✅ Checklist công việc
 
 **Phần 1: Nâng cấp Retrieval Evaluator (30 phút)**
-- [ ] `calculate_hit_rate()`: kiểm tra `expected_retrieval_ids ∩ retrieved_ids[:top_k]`
-- [ ] `calculate_mrr()`: tìm rank đầu tiên của expected_id → MRR = 1/rank
-- [ ] Implement `evaluate_batch()` thực sự (xóa placeholder):
+- [x] `calculate_hit_rate()`: kiểm tra `expected_retrieval_ids ∩ retrieved_ids[:top_k]`
+- [x] `calculate_mrr()`: tìm rank đầu tiên của expected_id → MRR = 1/rank
+- [x] Implement `evaluate_batch()` thực sự (xóa placeholder):
   ```python
   async def evaluate_batch(self, dataset, agent_responses):
       results = []
@@ -260,14 +260,14 @@ Thay thế `MainAgent` mock bằng **RAG agent thực** với Vector DB, có `re
           "per_case": results
       }
   ```
-- [ ] Verify với 5 sample cases thủ công
+- [x] Verify với 5 sample cases thủ công
 
 **Phần 2: Nâng cấp BenchmarkRunner (45 phút)**
-- [ ] Thêm `asyncio.Semaphore(5)` để giới hạn concurrent calls
-- [ ] Implement Cost Tracking: cộng `cost_usd` từ agent + judge mỗi case
-- [ ] Thêm progress bar `tqdm`
-- [ ] Đo `total_time_seconds` bao ngoài toàn bộ `run_all()`
-- [ ] Thêm Cost Report vào summary:
+- [x] Thêm `asyncio.Semaphore(5)` để giới hạn concurrent calls
+- [x] Implement Cost Tracking: cộng `cost_usd` từ agent + judge mỗi case
+- [x] Thêm progress bar `tqdm`
+- [x] Đo `total_time_seconds` bao ngoài toàn bộ `run_all()`
+- [x] Thêm Cost Report vào summary:
   ```json
   "performance": {
     "total_time_seconds": 87.3,
@@ -276,18 +276,18 @@ Thay thế `MainAgent` mock bằng **RAG agent thực** với Vector DB, có `re
     "cost_per_case_usd": 0.0084
   }
   ```
-- [ ] Đảm bảo 50 cases chạy trong **< 120 giây**
+- [x] Đảm bảo 50 cases chạy trong **< 120 giây**
 
 **Phần 3: Testing (15 phút)**
-- [ ] Chạy với 10 cases test trước khi chạy full 50
-- [ ] Verify Hit Rate và MRR có giá trị thực (không phải 0.85/0.72 placeholder)
-- [ ] Verify total_time < 120s
+- [x] Chạy với 10 cases test trước khi chạy full 50
+- [x] Verify Hit Rate và MRR có giá trị thực (không phải 0.85/0.72 placeholder)
+- [x] Verify total_time < 120s
 
 ### 📄 Reflection (`analysis/reflections/reflection_PhanVanTan.md`)
-- [ ] MRR là gì — ví dụ cụ thể với số liệu
-- [ ] Tại sao Retrieval Quality → Answer Quality (với bằng chứng từ kết quả)
-- [ ] `asyncio.gather` vs `asyncio.Semaphore` — khi nào dùng cái gì
-- [ ] 3 cách giảm 30% chi phí eval mà không giảm accuracy
+- [x] MRR là gì — ví dụ cụ thể với số liệu
+- [x] Tại sao Retrieval Quality → Answer Quality (với bằng chứng từ kết quả)
+- [x] `asyncio.gather` vs `asyncio.Semaphore` — khi nào dùng cái gì
+- [x] 3 cách giảm 30% chi phí eval mà không giảm accuracy
 
 ---
 
