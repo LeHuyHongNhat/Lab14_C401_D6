@@ -3,6 +3,8 @@ __pycache__/
 *.pyc
 .DS_Store
 reports/
+!reports/
+reports/*
 !reports/*.md
 .venv
 khanhnq_todo.md
