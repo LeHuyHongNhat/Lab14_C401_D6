@@ -103,15 +103,15 @@ def _release_gate(v1: dict, v2: dict) -> dict:
 async def run_benchmark(agent_version: str, agent_v: str = "v1") -> tuple:
     print(f"\n🚀 Khởi động Benchmark cho {agent_version} (agent {agent_v.upper()})...")
 
-    if not os.path.exists("data/gemini_golden_set.jsonl"):
-        print("❌ Thiếu data/gemini_golden_set.jsonl. Chạy 'python data/synthetic_gen.py' trước.")
+    if not os.path.exists("data/golden_set.jsonl"):
+        print("❌ Thiếu data/golden_set.jsonl. Chạy 'python data/synthetic_gen.py' trước.")
         return None, None
 
-    with open("data/gemini_golden_set.jsonl", "r", encoding="utf-8") as f:
+    with open("data/golden_set.jsonl", "r", encoding="utf-8") as f:
         dataset = [json.loads(line) for line in f if line.strip()]
 
     if not dataset:
-        print("❌ File data/gemini_golden_set.jsonl rỗng.")
+        print("❌ File data/golden_set.jsonl rỗng.")
         return None, None
 
     agent    = MainAgent(version=agent_v)
