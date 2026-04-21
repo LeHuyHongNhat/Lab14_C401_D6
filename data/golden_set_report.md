@@ -50,16 +50,6 @@ Bộ **Claude (Hand-crafted)** bao phủ các case "phá vỡ hệ thống" (Bre
 
 ---
 
-## 💡 Đề xuất Cuối cùng cho Team
-
-> [!IMPORTANT]
-> **TEAM NÊN CHỌN: `claude_golden_set.jsonl`**
->
-> 1. **Lý do kỹ thuật:** Đây là bộ duy nhất có **13 câu Multi-hop**. Điều này cực kỳ quan trọng để Phan Văn Tấn (Perf Engineer) và Nguyễn Tuấn Khải (Agent Engineer) có dữ liệu để tối ưu V1 vs V2.
-> 2. **Lý do chiến thuật:** Khi viết báo cáo **Failure Analysis (Nguyễn Quế Sơn)**, việc sử dụng bộ dataset khó này sẽ tạo ra nhiều "lỗi hệ thống" (Root Cause) để phân tích "5 Whys" sâu hơn, thay vì một hệ thống chạy hoàn hảo 100% nhưng không có giá trị học thuật.
-
----
-
 ## 💎 4. Đề xuất Kết hợp: "The Master Golden Set 100"
 
 Từ kết quả phân tích, tôi đề xuất team thực hiện kết hợp cả 2 bộ dữ liệu của GPT-4o và Claude thành một file duy nhất: **`master_golden_set.jsonl`** (100 câu hỏi).
