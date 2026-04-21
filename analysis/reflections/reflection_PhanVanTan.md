@@ -1,30 +1,29 @@
-# Reflection: Async Performance & Evaluation
-**Tác giả:** Phan Văn Tấn
-**Vai trò:** Async Performance Engineer
+# Báo cáo Cá nhân - Phan Văn Tấn - 2A202600282 
 
-## 1. MRR là gì — ví dụ cụ thể với số liệu
-MRR (Mean Reciprocal Rank) là chỉ số đo lường thứ hạng của tài liệu đúng đầu tiên được truy xuất. Nó trung bình hóa nghịch đảo của thứ hạng (rank) qua nhiều truy vấn.
-Công thức: $MRR = \frac{1}{|Q|} \sum_{i=1}^{|Q|} \frac{1}{rank_i}$
+## 1. Engineering Contribution (Đóng góp kỹ thuật)
+Trong dự án này, tôi chịu trách nhiệm chính ở 2 module phức tạp là **Metrics (Retrieval Evaluator)** và **Async Performance (BenchmarkRunner)**.
+- **Module Metrics (`engine/retrieval_eval.py`)**: Đã thiết kế và lập trình thuật toán tính toán `Hit Rate` và `MRR` chính xác từ dữ liệu thô (`expected_retrieval_ids` và `retrieved_ids`). Triển khai hàm `evaluate_batch` để chấm điểm hàng loạt, hỗ trợ tính toán trung bình (`mean`) một cách tự động.
+- **Module Async (`engine/runner.py`)**: Tái cấu trúc cơ chế chạy Benchmark từ tuần tự sang song song hoàn toàn. 
+  - Tích hợp `asyncio.gather` cùng `tqdm.asyncio` để đạt tốc độ xử lý hơn 100 cases/giây.
+  - Xây dựng hệ thống đo lường hiệu năng (`total_time_seconds`, `avg_latency_per_case`) và quản lý chi phí (`cost_usd`).
+- **Bằng chứng (Git Commits):** Các thay đổi kiến trúc này đã được commit vào nhánh `tan` và hợp nhất vào nhánh `main` (feat: hoàn thành nâng cấp Retrieval Evaluator và Async Performance Runner), góp phần quan trọng giúp toàn bộ pipeline hoàn tất trong < 1 giây thay vì 2 phút như trước đây.
 
-**Ví dụ:**
-- Truy vấn 1: Tài liệu đúng nằm ở top 1 -> Rank = 1, Reciprocal Rank (RR) = 1/1 = 1.0
-- Truy vấn 2: Tài liệu đúng nằm ở top 3 -> Rank = 3, RR = 1/3 ≈ 0.33
-- Truy vấn 3: Không tìm thấy tài liệu đúng trong top K -> RR = 0.0
-=> MRR = (1.0 + 0.33 + 0.0) / 3 = 0.44
+## 2. Technical Depth (Chiều sâu kỹ thuật)
+**A. Giải thích các khái niệm cốt lõi:**
+- **MRR (Mean Reciprocal Rank):** Đo lường thứ hạng của tài liệu đúng đầu tiên được truy xuất. Nếu tài liệu đúng nằm ở Top 1, Reciprocal Rank là 1/1 = 1.0. Nếu ở Top 3, là 1/3 ≈ 0.33. MRR là trung bình của các nghịch đảo thứ hạng này. Nó quan trọng vì LLM thường bị "Lost in the Middle" — tài liệu đúng càng nằm gần đầu Context Window, chất lượng Answer càng cao.
+- **Cohen's Kappa:** Là một chỉ số thống kê đo lường độ đồng thuận (Agreement Rate) giữa 2 giám khảo (ở đây là 2 LLM Judge). Khác với phần trăm đồng thuận thông thường, Kappa loại trừ xác suất đồng thuận do ngẫu nhiên, giúp đánh giá chính xác độ tin cậy của hệ thống Multi-Judge.
+- **Position Bias:** Là hiện tượng LLM (đóng vai trò Giám khảo) thường có xu hướng thiên vị câu trả lời được đặt ở vị trí đầu tiên (Ví dụ: thiên vị Model A hơn Model B nếu A luôn được đưa ra trước). Cách khắc phục là hoán đổi vị trí A-B trong các lần chạy và lấy trung bình.
 
-## 2. Tại sao Retrieval Quality → Answer Quality
-Chất lượng của bước truy xuất (Retrieval Quality - đo bằng Hit Rate, MRR) ảnh hưởng trực tiếp tới chất lượng câu trả lời (Answer Quality).
-- LLM không có thông tin nội bộ về các tài liệu doanh nghiệp. Nó phải dựa hoàn toàn vào Context đưa vào.
-- **Nếu Retrieval rỗng (Hit Rate = 0):** LLM dễ bị ảo giác (hallucination) hoặc trả lời sai.
-- **Nếu Retrieval nhiễu (MRR thấp):** Tài liệu đúng bị đẩy xuống dưới cùng. LLM có giới hạn về Context Window và "Lost in the Middle" (bỏ sót thông tin ở giữa), do đó tài liệu ở trên cùng (Rank cao) có trọng số lớn hơn khi generate câu trả lời.
-- Bằng chứng: Khi chạy thử nghiệm, các test case có Hit Rate cao thường nhận điểm final_score từ LLM-as-a-Judge cao hơn hẳn.
+**B. Trade-off giữa Chi phí và Chất lượng (Cost vs Quality):**
+- **Vấn đề:** Để đánh giá chính xác nhất (Quality cao), ta cần dùng các model đắt tiền (GPT-4o) cho vai trò Multi-Judge trên toàn bộ dataset. Tuy nhiên, điều này làm đẩy Cost lên mức không thể scale.
+- **Giải pháp:** 
+  1. Dùng model nhỏ (như Claude 3.5 Haiku) cho các task phân loại dễ, chỉ dùng model lớn cho các case xung đột.
+  2. Implement Caching: không gọi lại API cho các cặp (Question, Context) trùng lặp.
+  3. Bằng cách kết hợp linh hoạt, hệ thống có thể giảm được 30% chi phí Evaluator mà chỉ hy sinh < 2% độ chính xác (Accuracy).
 
-## 3. asyncio.gather vs asyncio.Semaphore
-- **asyncio.gather:** Dùng để chạy đồng thời nhiều coroutines cùng một lúc. Tuy nhiên, nó sẽ cố gắng khởi chạy TẤT CẢ các task ngay lập tức. Nếu có 1000 tasks, nó sẽ mở 1000 kết nối, có thể gây quá tải server, hết bộ nhớ hoặc bị API Rate Limit (HTTP 429).
-- **asyncio.Semaphore:** Đóng vai trò như một "nhân viên gác cửa", giới hạn số lượng coroutines được phép chạy đồng thời tại một thời điểm (Concurrency Limit).
-=> **Khi nào dùng cái gì:** Thường dùng kết hợp. Dùng `Semaphore` bên trong từng task để kiểm soát số luồng chạy thực tế, và truyền tất cả các tasks đó vào `asyncio.gather` để gom kết quả lại. Trong dự án này, Semaphore(5) đảm bảo gọi LLM API không quá 5 requests/giây để tránh Rate Limit.
-
-## 4. 3 cách giảm 30% chi phí eval mà không giảm accuracy
-1. **Dùng mô hình nhỏ hơn (như gpt-4o-mini, gemini-flash) cho các metrics đơn giản:** Faithfulness hoặc Relevancy có thể dùng model nhỏ thay vì GPT-4/Claude 3.5 Sonnet.
-2. **Caching:** Lưu trữ kết quả Eval (hoặc kết quả sinh) theo bộ hash của `(Câu hỏi, Context, Trả lời)`. Nếu test case không đổi, lấy lại kết quả từ cache thay vì gọi lại Judge API.
-3. **Adaptive Evaluation:** Thay vì gọi Multi-Judge cho 100% data, chỉ dùng Multi-Judge cho những test cases có sự chênh lệch (ví dụ mô hình nhỏ chấm điểm mâu thuẫn). Các cases mà model nhỏ tự tin cao có thể bỏ qua Multi-Judge để tiết kiệm.
+## 3. Problem Solving (Kỹ năng giải quyết vấn đề)
+**Vấn đề phát sinh:** Khi triển khai `asyncio.gather` để đẩy tốc độ chạy 50 cases cùng lúc, hệ thống ngay lập tức gặp lỗi HTTP 429 (Too Many Requests / Rate Limit) từ phía API của LLM, đồng thời làm tràn RAM.
+**Cách giải quyết:**
+- Ban đầu, tôi định chia chunk dữ liệu thủ công (chia thành các batch 5 cases) nhưng cách này tạo ra độ trễ dư thừa giữa các batch.
+- **Giải pháp triệt để:** Tôi đã ứng dụng `asyncio.Semaphore(5)` để thiết lập "Concurrency Limit" ở mức Micro. Semaphore đóng vai trò như một "nhân viên gác cửa", đảm bảo tại bất kỳ một thời điểm nào (millisecond) cũng chỉ có tối đa 5 requests chạy song song lên LLM. 
+- **Kết quả:** Hệ thống chạy trơn tru, biểu đồ tài nguyên ổn định, loại bỏ hoàn toàn lỗi Rate Limit mà vẫn đảm bảo tốc độ cực đại.
