@@ -9,7 +9,7 @@ class BenchmarkRunner:
         self.agent = agent
         self.evaluator = evaluator
         self.judge = judge
-        self.semaphore = asyncio.Semaphore(5)
+        self.semaphore = asyncio.Semaphore(3)  # giảm xuống 3 để tránh TPM limit với 130 cases
 
     async def run_single_test(self, test_case: Dict, pbar: tqdm) -> Dict:
         async with self.semaphore:
