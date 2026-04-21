@@ -1,6 +1,6 @@
 # 🧠 Bài Thu hoạch Cá nhân (Reflection) - BẢN TÍCH HỢP CUỐI CÙNG
 ---
-**Thành viên:** Nguyễn Quế Sơn
+**Thành viên:** Nguyễn Quế Sơn - 2A202600198
 **Vai trò:** Analyst / 5 Whys Expert
 
 ## 1. Trải nghiệm Tích hợp Hệ thống
