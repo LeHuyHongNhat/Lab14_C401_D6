@@ -1,14 +1,23 @@
 import json
 import asyncio
 import os
+import argparse
 from typing import List, Dict
 from dotenv import load_dotenv
 from openai import AsyncOpenAI
 
+# Import Vertex AI SDK
+try:
+    import vertexai
+    from vertexai.generative_models import GenerativeModel, GenerationConfig
+    VERTEX_AVAILABLE = True
+except ImportError:
+    VERTEX_AVAILABLE = False
+
 # Load environment variables
 load_dotenv()
 
-# Global client and semaphore placeholders
+# Global placeholders
 client = None
 semaphore = None
 
@@ -66,117 +75,138 @@ Each case must follow this JSON schema:
 4. Return ONLY a JSON object with a key 'cases' containing the list. No markdown, no explanation.
 """
 
-async def call_llm(prompt: str) -> List[Dict]:
+async def call_openai(prompt: str, model: str = "gpt-4o") -> List[Dict]:
     async with semaphore:
         try:
             response = await client.chat.completions.create(
-                model="gpt-4o",
+                model=model,
                 messages=[
                     {"role": "system", "content": "You are a helpful assistant that outputs only JSON."},
                     {"role": "user", "content": prompt}
                 ],
                 response_format={"type": "json_object"}
             )
-            content = response.choices[0].message.content
-            data = json.loads(content)
-            
-            # Extract list from object
-            cases = []
-            if "cases" in data:
-                cases = data["cases"]
-            elif isinstance(data, list):
-                cases = data
-            elif isinstance(data, dict):
-                # Try to find any list in the dict
-                for val in data.values():
-                    if isinstance(val, list):
-                        cases = val
-                        break
-                if not cases and "question" in data:
-                    cases = [data]
-            
-            return cases
+            return parse_response(response.choices[0].message.content)
         except Exception as e:
-            print(f"Error calling LLM: {e}")
+            print(f"Error calling OpenAI: {e}")
             return []
+
+async def call_gemini(prompt: str, model_id: str) -> List[Dict]:
+    async with semaphore:
+        for attempt in range(5):  # Try up to 5 times
+            try:
+                model = GenerativeModel(model_id)
+                response = await model.generate_content_async(
+                    prompt,
+                    generation_config=GenerationConfig(
+                        response_mime_type="application/json",
+                    )
+                )
+                return parse_response(response.text)
+            except Exception as e:
+                if "429" in str(e):
+                    wait_time = (2 ** attempt) + 2
+                    print(f"⚠️ Rate limited (429). Retrying in {wait_time}s...")
+                    await asyncio.sleep(wait_time)
+                else:
+                    print(f"Error calling Gemini ({model_id}): {e}")
+                    return []
+        return []
+
+def parse_response(content: str) -> List[Dict]:
+    try:
+        data = json.loads(content)
+        cases = []
+        if "cases" in data:
+            cases = data["cases"]
+        elif isinstance(data, list):
+            cases = data
+        elif isinstance(data, dict):
+            for val in data.values():
+                if isinstance(val, list):
+                    cases = val
+                    break
+            if not cases and "question" in data:
+                cases = [data]
+        return cases
+    except Exception as e:
+        print(f"Error parsing JSON: {e}")
+        return []
 
 def load_corpus(path: str) -> List[Dict]:
     with open(path, "r", encoding="utf-8") as f:
         return json.load(f)
 
-async def generate_all_cases():
+async def generate_all_cases(engine: str, model_id: str):
     corpus = load_corpus("data/source_corpus.json")
-    all_cases = []
-    
     tasks = []
     
-    # 1. Generate Regular Cases
     for doc in corpus:
-        prompt = REGULAR_PROMPT.format(
-            text=doc["text"],
-            doc_id=doc["doc_id"],
-            num_pairs=4,
-            category=doc["title"]
-        )
-        tasks.append(call_llm(prompt))
+        reg_prompt = REGULAR_PROMPT.format(text=doc["text"], doc_id=doc["doc_id"], num_pairs=4, category=doc["title"])
+        adv_prompt = ADVERSARIAL_PROMPT.format(text=doc["text"], doc_id=doc["doc_id"], category=doc["title"])
         
-    # 2. Generate Adversarial Cases
-    for doc in corpus:
-        prompt = ADVERSARIAL_PROMPT.format(
-            text=doc["text"],
-            doc_id=doc["doc_id"],
-            category=doc["title"]
-        )
-        tasks.append(call_llm(prompt))
+        if engine == "openai":
+            tasks.append(call_openai(reg_prompt, model_id))
+            tasks.append(call_openai(adv_prompt, model_id))
+        elif engine == "gemini":
+            tasks.append(call_gemini(reg_prompt, model_id))
+            tasks.append(call_gemini(adv_prompt, model_id))
+        
+        # Small delay between documents to respect quotas
+        await asyncio.sleep(2)
         
     results = await asyncio.gather(*tasks)
     
+    all_cases = []
     for batch in results:
-        if isinstance(batch, list):
-            all_cases.extend(batch)
-        else:
-            all_cases.append(batch)
-            
+        all_cases.extend(batch)
     return all_cases
 
 def validate_golden_set(cases: List[Dict]) -> bool:
     required_keys = {"question", "expected_answer", "context", "expected_retrieval_ids", "metadata"}
     for i, case in enumerate(cases):
         if not all(k in case for k in required_keys):
-            print(f"Row {i} is missing keys: {required_keys - case.keys()}")
             return False
     return True
 
 async def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--engine", choices=["openai", "gemini"], default="openai")
+    parser.add_argument("--model", type=str, default="gpt-4o")
+    parser.add_argument("--output", type=str, default="data/golden_set.jsonl")
+    args = parser.parse_args()
+
     global client, semaphore
-    client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-    semaphore = asyncio.Semaphore(5)
+    semaphore = asyncio.Semaphore(1)
     
-    print("🚀 Starting Synthetic Data Generation...")
-    qa_pairs = await generate_all_cases()
+    if args.engine == "openai":
+        client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+    elif args.engine == "gemini":
+        if not VERTEX_AVAILABLE:
+            print("❌ Vertex AI SDK not installed. Run 'pip install google-cloud-aiplatform'")
+            return
+        vertexai.init(project=os.getenv("PROJECT_ID"), location=os.getenv("LOCATION"))
     
-    print(f"📊 Raw cases generated: {len(qa_pairs)}")
+    print(f"🚀 Starting SDG with {args.engine} ({args.model})...")
+    qa_pairs = await generate_all_cases(args.engine, args.model)
     
-    # Simple deduplication (optional)
+    # Deduplication
     unique_questions = set()
     final_pairs = []
     for p in qa_pairs:
-        if p["question"] not in unique_questions:
+        if p.get("question") and p["question"] not in unique_questions:
             unique_questions.add(p["question"])
             final_pairs.append(p)
     
-    print(f"✅ Generated {len(final_pairs)} unique cases.")
+    print(f"📊 Generated {len(final_pairs)} unique cases.")
     
     if validate_golden_set(final_pairs):
-        with open("data/golden_set.jsonl", "w", encoding="utf-8") as f:
+        with open(args.output, "w", encoding="utf-8") as f:
             for pair in final_pairs:
                 f.write(json.dumps(pair, ensure_ascii=False) + "\n")
-        print(f"🎉 Done! Saved {len(final_pairs)} cases to data/golden_set.jsonl")
+        print(f"🎉 Done! Saved to {args.output}")
     else:
-        print("❌ Validation failed. Check prompts and outputs.")
+        print("❌ Validation failed.")
 
 if __name__ == "__main__":
-    if not os.getenv("OPENAI_API_KEY"):
-        print("❌ Error: OPENAI_API_KEY not found in .env")
-    else:
-        asyncio.run(main())
+    asyncio.run(main())
