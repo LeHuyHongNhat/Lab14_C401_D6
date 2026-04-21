@@ -3,59 +3,59 @@
     "metadata": {
       "version": "Agent_V1_Base",
       "total": 50,
-      "timestamp": "2026-04-21 21:49:19"
+      "timestamp": "2026-04-21 16:51:23"
     },
     "metrics": {
-      "avg_score": 4.6217,
-      "hit_rate": 0.98,
-      "mrr": 0.96,
-      "agreement_rate": 0.9436,
-      "total_cost_usd": 0.1203
+      "avg_score": 4.4417,
+      "hit_rate": 0.94,
+      "mrr": 0.935,
+      "agreement_rate": 0.9489,
+      "total_cost_usd": 0.205
     },
     "performance": {
-      "total_time_seconds": 44.1,
-      "avg_latency_per_case": 1.99,
-      "total_cost_usd": 0.1203,
-      "cost_per_case_usd": 0.0024
+      "total_time_seconds": 784.23,
+      "avg_latency_per_case": 2.71,
+      "total_cost_usd": 0.205,
+      "cost_per_case_usd": 0.0041
     }
   },
   "v2_summary": {
     "metadata": {
       "version": "Agent_V2_Optimized",
       "total": 50,
-      "timestamp": "2026-04-21 21:50:13",
+      "timestamp": "2026-04-21 17:07:41",
       "regression": {
-        "v1_score": 4.6217,
-        "v2_score": 4.505,
-        "decision": "WARN"
+        "v1_score": 4.4417,
+        "v2_score": 4.16,
+        "decision": "BLOCK"
       }
     },
     "metrics": {
-      "avg_score": 4.505,
-      "hit_rate": 0.98,
-      "mrr": 0.9433,
-      "agreement_rate": 0.9178,
-      "total_cost_usd": 0.1134
+      "avg_score": 4.16,
+      "hit_rate": 0.96,
+      "mrr": 0.9,
+      "agreement_rate": 0.9319,
+      "total_cost_usd": 0.1924
     },
     "performance": {
-      "total_time_seconds": 51.18,
-      "avg_latency_per_case": 2.05,
-      "total_cost_usd": 0.1134,
-      "cost_per_case_usd": 0.0023
+      "total_time_seconds": 978.71,
+      "avg_latency_per_case": 2.56,
+      "total_cost_usd": 0.1924,
+      "cost_per_case_usd": 0.0038
     }
   },
   "gate": {
-    "score_delta": -0.1167,
-    "hit_rate_delta": 0.0,
-    "mrr_delta": -0.0167,
-    "cost_delta": -0.0069,
+    "score_delta": -0.2817,
+    "hit_rate_delta": 0.02,
+    "mrr_delta": -0.035,
+    "cost_delta": -0.0126,
     "latency_delta": 0,
-    "decision": "WARN",
+    "decision": "BLOCK",
     "reasons": [
-      "Score giảm -0.117",
-      "Hit Rate tăng +0.000",
-      "Cost giảm 0.006900 USD"
+      "Score giảm -0.282",
+      "Hit Rate tăng +0.020",
+      "Cost giảm 0.012600 USD"
     ]
   },
-  "timestamp": "2026-04-21 21:50:13"
+  "timestamp": "2026-04-21 17:07:41"
 }
