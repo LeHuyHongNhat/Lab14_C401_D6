@@ -1,5 +1,7 @@
 # 📄 Personal Reflection - Nguyễn Quốc Khánh (Data Engineer / SDG Lead)
 
+Nguyễn Quốc Khánh - 2A202600199
+
 ## 1. Engineering Contribution & Problem Solving
 Trong Lab 14, vai trò chính của tôi là Data Engineer phụ trách module Synthetic Data Generation (SDG) để tạo Golden Dataset. 
 - **Thiết kế & Tích hợp:** Tôi đã xây dựng `data/synthetic_gen.py`, thiết kế chuẩnschema JSONL chứa `expected_retrieval_ids` và hỗ trợ đa Engine (OpenAI & Gemini Vertex AI).
