@@ -98,27 +98,34 @@ class LLMJudge:
             f"{self.rubric_prompt}\nQUESTION: {question}\nANSWER: {answer}\nGROUND_TRUTH: {ground_truth}\nRespond only with valid JSON."
         )
 
-        # Try Google Generative AI client if available
-        if genai and hasattr(genai, "chat"):
+        # Dùng GenerativeModel API đúng của google-generativeai
+        if genai:
             try:
-                # genai.chat.create is synchronous in many SDKs; wrap in thread
-                resp = await asyncio.to_thread(lambda: genai.chat.create(model=model, messages=[{"content": prompt, "author": "user"}]))
-                # SDKs differ in shape; attempt common accesses
-                content = getattr(resp, "content", None) or (resp.get("candidates")[0].get("content") if resp.get("candidates") else None)
-                if not content and isinstance(resp, dict):
-                    content = resp.get("candidates", [{}])[0].get("content")
-                parsed = _parse_json_like(content or "")
+                # genai.GenerativeModel().generate_content() là API chính thức và đồng bộ; wrap in thread
+                def _generate():
+                    gemini_model_obj = genai.GenerativeModel(model)
+                    return gemini_model_obj.generate_content(prompt)
 
-                # Try to extract usage from genai response
+                resp = await asyncio.to_thread(_generate)
+
+                # Lấy text content từ response
+                content = None
+                try:
+                    content = resp.text  # thuộc tính text có sẵn trên GenerateContentResponse
+                except Exception:
+                    pass
+                if not content:
+                    try:
+                        content = resp.candidates[0].content.parts[0].text
+                    except Exception:
+                        content = str(resp)
+
+                # Lấy token usage từ usage_metadata
                 usage = getattr(resp, "usage_metadata", None)
-                p_tokens = getattr(usage, "prompt_token_count", 0)
-                c_tokens = getattr(usage, "candidates_token_count", 0)
+                p_tokens = getattr(usage, "prompt_token_count", 0) or 0
+                c_tokens = getattr(usage, "candidates_token_count", 0) or 0
 
-                if not p_tokens and isinstance(resp, dict):
-                    u = resp.get("usage", {})
-                    p_tokens = u.get("prompt_tokens", u.get("prompt_token_count", 0))
-                    c_tokens = u.get("completion_tokens", u.get("candidates_token_count", 0))
-
+                parsed = _parse_json_like(content or "")
                 parsed.setdefault("tokens", p_tokens + c_tokens)
                 parsed.setdefault("cost_usd", _estimate_cost(model, p_tokens, c_tokens))
                 parsed["_model_used"] = model
