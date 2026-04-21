@@ -1,15 +1,19 @@
 import os
 import json
 import asyncio
-from typing import Dict, Any, Tuple
+import random
+from typing import Dict, Any
 
-# Lightweight implementation that attempts to call OpenAI (gpt-4o) and Google Gemini (gemini-3.1-pro).
+# Lightweight implementation that attempts to call OpenAI (gpt-4o) and Google Gemini (gemini-3.1-pro-preview).
 # If SDKs are not available at runtime, falls back to a deterministic mock to keep behavior predictable.
 
 try:
     import openai
+    from openai import AsyncOpenAI, RateLimitError as OpenAIRateLimitError
 except Exception:
     openai = None
+    AsyncOpenAI = None
+    OpenAIRateLimitError = Exception
 
 try:
     import google.generativeai as genai
@@ -18,21 +22,23 @@ except Exception:
 
 
 class LLMJudge:
-    def __init__(self, gpt_model: str = "gpt-5", gemini_model: str = "gemini-3.1-pro-preview", verbosity: str = "high"):
+    def __init__(self, gpt_model: str = "gpt-4o", gemini_model: str = "gemini-3.1-pro-preview", verbosity: str = "high"):
         self.gpt_model = gpt_model
         self.gemini_model = gemini_model
         self.verbosity = verbosity
         self.openai_key = os.getenv("OPENAI_API_KEY")
         self.gemini_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
 
-        if openai and self.openai_key:
-            # keep compatibility with older openai package usage
-            try:
-                openai.api_key = self.openai_key
-            except Exception:
-                pass
+        # Modern AsyncOpenAI client (openai >= 1.0)
+        self._openai_client = None
+        if AsyncOpenAI and self.openai_key:
+            self._openai_client = AsyncOpenAI(api_key=self.openai_key)
+
         if genai and self.gemini_key:
             genai.configure(api_key=self.gemini_key)
+
+        # Models that do NOT support temperature parameter
+        self._no_temperature_models = {"o1", "o1-mini", "o3", "o3-mini", "o4-mini"}
 
         # Rubric for evaluating the answers based on multiple criteria
         self.rubric_prompt = (
@@ -43,117 +49,99 @@ class LLMJudge:
             "Score on a 1-5 scale (1 worst, 5 best). Return JSON: {\"score\": float, \"reasoning\": \"str\"}. Be concise."
         )
 
-    async def _call_gpt(self, question: str, answer: str, ground_truth: str) -> Dict[str, Any]:
+    async def _call_gpt(self, question: str, answer: str, ground_truth: str, max_retries: int = 4) -> Dict[str, Any]:
         prompt = (
             f"{self.rubric_prompt}\nQUESTION: {question}\nANSWER: {answer}\nGROUND_TRUTH: {ground_truth}\nRespond only with valid JSON."
         )
 
-        # Try OpenAI new Responses API if available (supports verbosity)
-        if openai and hasattr(openai, "OpenAI"):
+        if not self._openai_client:
+            print(f"   ❌ [LLMJudge] OpenAI client chưa được khởi tạo (thiếu OPENAI_API_KEY?) — dùng MOCK SCORE")
+            return _mock_score(answer, ground_truth, provider="gpt-mock")
+
+        # Kiểm tra model có hỗ trợ temperature không
+        supports_temp = not any(m in self.gpt_model.lower() for m in self._no_temperature_models)
+        create_kwargs = dict(
+            model=self.gpt_model,
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=512,
+        )
+        if supports_temp:
+            create_kwargs["temperature"] = 0
+
+        last_err = None
+        for attempt in range(max_retries):
             try:
-                client = openai.OpenAI(api_key=self.openai_key) if self.openai_key else openai.OpenAI()
-                # responses.create is often sync in SDKs; run in thread
-                resp = await asyncio.to_thread(lambda: client.responses.create(model=self.gpt_model, input=prompt, text={"verbosity": self.verbosity}, temperature=0))
-                content = getattr(resp, "output_text", None)
+                resp = await self._openai_client.chat.completions.create(**create_kwargs)
+                content = resp.choices[0].message.content
+                p_tokens = resp.usage.prompt_tokens if resp.usage else 0
+                c_tokens = resp.usage.completion_tokens if resp.usage else 0
+                parsed = _parse_json_like(content)
+                parsed.setdefault("tokens", p_tokens + c_tokens)
+                parsed.setdefault("cost_usd", _estimate_cost(self.gpt_model, p_tokens, c_tokens))
+                return parsed
+            except OpenAIRateLimitError as e:
+                last_err = e
+                wait = min(60, (2 ** attempt) + random.uniform(0, 1))
+                print(f"   ⚠️  [LLMJudge] GPT rate limit (attempt {attempt+1}/{max_retries}), chờ {wait:.1f}s...")
+                await asyncio.sleep(wait)
+            except Exception as e:
+                print(f"   ⚠️  [LLMJudge] GPT ({self.gpt_model}) thất bại: {type(e).__name__}: {e}")
+                break
+
+        # Tất cả attempts đều thất bại → dùng mock
+        print(f"   ❌ [LLMJudge] Không thể gọi GPT ({self.gpt_model}) — dùng MOCK SCORE (kết quả không đáng tin cậy!)")
+        return _mock_score(answer, ground_truth, provider="gpt-mock")
+
+    async def _call_gemini(self, question: str, answer: str, ground_truth: str, model_override: str = None) -> Dict[str, Any]:
+        model = model_override or self.gemini_model
+        prompt = (
+            f"{self.rubric_prompt}\nQUESTION: {question}\nANSWER: {answer}\nGROUND_TRUTH: {ground_truth}\nRespond only with valid JSON."
+        )
+
+        # Dùng GenerativeModel API đúng của google-generativeai
+        if genai:
+            try:
+                # genai.GenerativeModel().generate_content() là API chính thức và đồng bộ; wrap in thread
+                def _generate():
+                    gemini_model_obj = genai.GenerativeModel(model)
+                    return gemini_model_obj.generate_content(prompt)
+
+                resp = await asyncio.to_thread(_generate)
+
+                # Lấy text content từ response
+                content = None
+                try:
+                    content = resp.text  # thuộc tính text có sẵn trên GenerateContentResponse
+                except Exception:
+                    pass
                 if not content:
                     try:
-                        content = resp.output[0].content[0].text
+                        content = resp.candidates[0].content.parts[0].text
                     except Exception:
                         content = str(resp)
-                prompt_tokens = 0
-                completion_tokens = 0
-                if isinstance(resp, dict):
-                    usage = resp.get("usage", {})
-                    prompt_tokens = usage.get("prompt_tokens", 0)
-                    completion_tokens = usage.get("completion_tokens", 0)
-                
-                parsed = _parse_json_like(content)
-                parsed.setdefault("tokens", prompt_tokens + completion_tokens)
-                parsed.setdefault("cost_usd", _estimate_cost(self.gpt_model, prompt_tokens, completion_tokens))
-                return parsed
-            except Exception:
-                pass
 
-        # Try OpenAI async ChatCompletion if available
-        if openai and hasattr(openai.ChatCompletion, "acreate"):
-            try:
-                resp = await openai.ChatCompletion.acreate(
-                    model=self.gpt_model,
-                    messages=[{"role": "user", "content": prompt}],
-                    temperature=0
-                )
-                content = resp.choices[0].message.content
-                usage = getattr(resp, "usage", None)
-                p_tokens = usage.prompt_tokens if usage and hasattr(usage, "prompt_tokens") else 0
-                c_tokens = usage.completion_tokens if usage and hasattr(usage, "completion_tokens") else 0
-                
-                parsed = _parse_json_like(content)
-                parsed.setdefault("tokens", p_tokens + c_tokens)
-                parsed.setdefault("cost_usd", _estimate_cost(self.gpt_model, p_tokens, c_tokens))
-                return parsed
-            except Exception:
-                pass
-
-        # Fallback to synchronous call via thread if available
-        if openai and hasattr(openai.ChatCompletion, "create"):
-            try:
-                resp = await asyncio.to_thread(
-                    lambda: openai.ChatCompletion.create(
-                        model=self.gpt_model,
-                        messages=[{"role": "user", "content": prompt}],
-                        temperature=0
-                    )
-                )
-                content = resp.choices[0].message.content
-                usage = resp.get("usage", {})
-                p_tokens = usage.get("prompt_tokens", 0)
-                c_tokens = usage.get("completion_tokens", 0)
-                
-                parsed = _parse_json_like(content)
-                parsed.setdefault("tokens", p_tokens + c_tokens)
-                parsed.setdefault("cost_usd", _estimate_cost(self.gpt_model, p_tokens, c_tokens))
-                return parsed
-            except Exception:
-                pass
-
-        # If no OpenAI available, return deterministic mock
-        return _mock_score(answer, ground_truth, provider="gpt-4o")
-
-    async def _call_gemini(self, question: str, answer: str, ground_truth: str) -> Dict[str, Any]:
-        prompt = (
-            f"{self.rubric_prompt}\nQUESTION: {question}\nANSWER: {answer}\nGROUND_TRUTH: {ground_truth}\nRespond only with valid JSON."
-        )
-
-        # Try Google Generative AI client if available
-        if genai and hasattr(genai, "chat"):
-            try:
-                # genai.chat.create is synchronous in many SDKs; wrap in thread
-                resp = await asyncio.to_thread(lambda: genai.chat.create(model=self.gemini_model, messages=[{"content": prompt, "author": "user"}]))
-                # SDKs differ in shape; attempt common accesses
-                content = getattr(resp, "content", None) or (resp.get("candidates")[0].get("content") if resp.get("candidates") else None)
-                if not content and isinstance(resp, dict):
-                    # try typical field
-                    content = resp.get("candidates", [{}])[0].get("content")
-                parsed = _parse_json_like(content or "")
-                
-                # Try to extract usage from genai response
+                # Lấy token usage từ usage_metadata
                 usage = getattr(resp, "usage_metadata", None)
-                p_tokens = getattr(usage, "prompt_token_count", 0)
-                c_tokens = getattr(usage, "candidates_token_count", 0)
-                
-                if not p_tokens and isinstance(resp, dict):
-                    u = resp.get("usage", {})
-                    p_tokens = u.get("prompt_tokens", u.get("prompt_token_count", 0))
-                    c_tokens = u.get("completion_tokens", u.get("candidates_token_count", 0))
+                p_tokens = getattr(usage, "prompt_token_count", 0) or 0
+                c_tokens = getattr(usage, "candidates_token_count", 0) or 0
 
+                parsed = _parse_json_like(content or "")
                 parsed.setdefault("tokens", p_tokens + c_tokens)
-                parsed.setdefault("cost_usd", _estimate_cost(self.gemini_model, p_tokens, c_tokens))
+                parsed.setdefault("cost_usd", _estimate_cost(model, p_tokens, c_tokens))
+                parsed["_model_used"] = model
                 return parsed
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"   ⚠️  [LLMJudge] Gemini ({model}) thất bại: {type(e).__name__}: {e}")
 
-        # Fallback mock
-        return _mock_score(answer, ground_truth, provider="gemini")
+        # Fallback sang gemini-2.5-pro nếu primary model thất bại
+        _FALLBACK_GEMINI = "gemini-2.5-pro"
+        if model != _FALLBACK_GEMINI:
+            print(f"   🔄 [LLMJudge] Thử fallback sang {_FALLBACK_GEMINI}...")
+            return await self._call_gemini(question, answer, ground_truth, model_override=_FALLBACK_GEMINI)
+
+        # Tất cả Gemini paths đều thất bại → dùng mock
+        print(f"   ❌ [LLMJudge] Không thể gọi Gemini ({model}) — dùng MOCK SCORE (kết quả không đáng tin cậy!)")
+        return _mock_score(answer, ground_truth, provider="gemini-mock")
 
     async def evaluate_multi_judge(self, question: str, answer: str, ground_truth: str) -> Dict[str, Any]:
         """Call both judges concurrently, compute aggregated score, agreement and handle large disagreements.
@@ -282,6 +270,17 @@ def _estimate_cost(model: str, prompt_tokens: Any = 0, completion_tokens: Any = 
         else:
             in_rate = 0.0040
             out_rate = 0.0180
+        return round((p / 1000.0) * in_rate + (c / 1000.0) * out_rate, 6)
+
+    if "gemini-2.5-pro" in model.lower():
+        # Gemini 2.5 Pro: Input $1.25/1M (≤200k), Output $10.00/1M (≤200k tokens)
+        # Long-context (>200k): Input $2.50/1M, Output $15.00/1M
+        if p <= 200000:
+            in_rate = 0.00125
+            out_rate = 0.01000
+        else:
+            in_rate = 0.00250
+            out_rate = 0.01500
         return round((p / 1000.0) * in_rate + (c / 1000.0) * out_rate, 6)
 
     # Fallback rates for other models (e.g. gpt-4o, gpt-4o-mini)

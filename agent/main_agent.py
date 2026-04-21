@@ -1,10 +1,11 @@
 import asyncio
 import os
 import time
+import random
 from typing import Dict, List
 
 from dotenv import load_dotenv
-from openai import AsyncOpenAI
+from openai import AsyncOpenAI, RateLimitError
 
 from agent.document_store import DocumentStore
 
@@ -55,7 +56,7 @@ class MainAgent:
             return len(query_words & words) / max(len(query_words), 1)
         return sorted(chunks, key=overlap_score, reverse=True)
 
-    async def query(self, question: str) -> Dict:
+    async def query(self, question: str, max_retries: int = 5) -> Dict:
         t0 = time.perf_counter()
 
         # --- Retrieval ---
@@ -69,17 +70,29 @@ class MainAgent:
         contexts = [c["content"] for c in candidates]
         context_str = self._build_context(candidates)
 
-        # --- Generation ---
+        # --- Generation with retry on RateLimitError ---
         user_message = f"Context:\n{context_str}\n\nQuestion: {question}"
-        response = await self._client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": self._system_prompt},
-                {"role": "user", "content": user_message},
-            ],
-            temperature=0.0,
-            max_tokens=512,
-        )
+        last_err = None
+        for attempt in range(max_retries):
+            try:
+                response = await self._client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[
+                        {"role": "system", "content": self._system_prompt},
+                        {"role": "user", "content": user_message},
+                    ],
+                    temperature=0.0,
+                    max_tokens=512,
+                )
+                break  # success
+            except RateLimitError as e:
+                last_err = e
+                # Exponential backoff: 2^attempt + jitter (tối đa 60s)
+                wait = min(60, (2 ** attempt) + random.uniform(0, 1))
+                print(f"   ⚠️  Rate limit hit (attempt {attempt+1}/{max_retries}), chờ {wait:.1f}s...")
+                await asyncio.sleep(wait)
+        else:
+            raise RuntimeError(f"OpenAI rate limit không phục hồi sau {max_retries} lần thử: {last_err}")
 
         answer = response.choices[0].message.content.strip()
         tokens_used = response.usage.total_tokens
