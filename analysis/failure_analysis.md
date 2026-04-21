@@ -1,8 +1,8 @@
-# 🕵️ Báo cáo Phân tích Lỗi (Failure Analysis Report) - BẢN HOÀN THIỆN CHI TIẾT
+# Báo cáo Phân tích Lỗi (Failure Analysis Report)
 ---
-**Dự án:** AI Evaluation Factory - Hệ thống Đánh giá Tự động RAG
-**Người thực hiện:** Nguyễn Quế Sơn
-**Vai trò:** Chuyên gia Phân tích Thất bại (Analyst / 5 Whys Expert)
+**Dự án:** AI Evaluation Factory - Hệ thống Đánh giá Tự động RAG  
+**Người thực hiện:** Nguyễn Quế Sơn  
+**Vai trò:** Chuyên gia Phân tích Thất bại (Analyst / 5 Whys Expert)  
 **Ngày báo cáo:** 21 tháng 04 năm 2026
 
 ## 1. Tổng quan Benchmark & Quy trình Phân tích

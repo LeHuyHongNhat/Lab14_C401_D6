@@ -5,6 +5,9 @@ import time
 from engine.runner import BenchmarkRunner
 from engine.llm_judge import LLMJudge
 from agent.main_agent import MainAgent
+from dotenv import load_dotenv
+
+load_dotenv()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
