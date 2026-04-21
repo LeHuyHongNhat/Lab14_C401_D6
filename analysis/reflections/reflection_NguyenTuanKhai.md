@@ -14,20 +14,25 @@
 
 **`agent/document_store.py`** — Vector store in-memory:
 - ChromaDB client với OpenAI `text-embedding-3-small` (thay thế DefaultEmbeddingFunction vì lỗi timeout khi tải model ONNX 79MB)
-- Load toàn bộ 10 documents từ `data/source_corpus.json`, `doc_id` khớp chính xác với `expected_retrieval_ids` trong golden dataset
-- `retrieve(query, top_k)` → trả về list `{doc_id, content, score, title}`
+- Fixed-size chunking: mỗi document được split thành các chunk theo token size (V1=500, V2=200), overlap 50 tokens
+- Chunk ID dạng `doc_001_c0`, `doc_001_c1`... được map về parent `doc_id` khi trả kết quả, đảm bảo khớp với `expected_retrieval_ids` trong golden dataset
+- `retrieve(query, top_k)` → dedup theo parent doc_id, trả về list `{doc_id, content, score, title}`
 
 **`agent/main_agent.py`** — RAG Agent thực (thay thế mock):
-- **Agent V1:** top_k=5, system prompt đơn giản
-- **Agent V2:** top_k=3 + keyword-overlap reranking, system prompt chi tiết với rule chống adversarial
-- Gọi `gpt-4o-mini` với context từ ChromaDB
-- Response bắt buộc có `retrieved_ids` để unlock Hit Rate & MRR cho pipeline
+- **Agent V1:** `chunk_size=500`, top_k=5, system prompt đơn giản
+- **Agent V2:** `chunk_size=200`, top_k=3 + keyword-overlap reranking, system prompt chi tiết với rule chống adversarial
+- Retry tự động với exponential backoff khi gặp `RateLimitError`
+- Gọi `gpt-4o-mini` với context từ ChromaDB, response bắt buộc có `retrieved_ids`
 
 ### Vấn đề gặp phải và cách fix
 
-**Vấn đề:** ChromaDB `DefaultEmbeddingFunction` cố tải model ONNX 79MB từ internet nhưng bị `ReadTimeout` do mạng không ổn định.
+**Vấn đề 1:** ChromaDB `DefaultEmbeddingFunction` cố tải model ONNX 79MB từ internet nhưng bị `ReadTimeout` do mạng không ổn định.
 
-**Cách fix:** Chuyển sang `OpenAIEmbeddingFunction` với `text-embedding-3-small` — gọi thẳng qua API key có sẵn, không cần download bất kỳ file nào về local. Chi phí embedding 10 documents ~$0.00002, hoàn toàn không đáng kể.
+**Cách fix:** Chuyển sang `OpenAIEmbeddingFunction` với `text-embedding-3-small` — gọi thẳng qua API key có sẵn, không cần download bất kỳ file nào về local.
+
+**Vấn đề 2:** Merge conflict trong `engine/runner.py` do 2 nhánh cùng sửa file, gây `SyntaxError` khi chạy `main.py`.
+
+**Cách fix:** Resolve conflict thủ công, giữ lại phiên bản đúng indent (code nằm trong `async with self.semaphore` block) và cách lấy `cost_usd` từ `response["metadata"]`.
 
 ---
 
@@ -39,25 +44,26 @@ LLM có hai hạn chế cơ bản: **knowledge cutoff** (không biết thông ti
 
 ### 2. Chunking strategy: Fixed-size vs Semantic — trade-offs?
 
-| | Fixed-size (500 tokens) | Semantic chunking |
+| | Fixed-size (V1=500, V2=200 tokens) | Semantic chunking |
 |---|---|---|
 | **Ưu điểm** | Đơn giản, nhanh, dễ implement | Giữ nguyên nghĩa, không cắt đứt giữa câu |
 | **Nhược điểm** | Có thể cắt đứt ý giữa chừng, mất context | Phức tạp hơn, tốn 2-3x thời gian ingestion |
 | **Phù hợp** | Văn bản đồng nhất (news, FAQ) | Văn bản kỹ thuật, bảng số liệu, multi-topic |
 
-Trong project này dùng fixed-size (toàn bộ document là 1 chunk) vì corpus chỉ có 10 documents, mỗi document đủ nhỏ để fit vào context window. Với corpus lớn hơn, semantic chunking hoặc "parent-child chunking" (small chunk để retrieve, large chunk để generate) sẽ cho kết quả tốt hơn.
+Trong project này dùng fixed-size với 2 kích thước khác nhau để so sánh V1 vs V2. Chunk nhỏ hơn (200 tokens) giúp retrieval chính xác hơn nhưng mỗi chunk có ít context hơn khi đưa vào LLM. Với corpus lớn hơn, "parent-child chunking" (chunk nhỏ để retrieve, chunk lớn để generate) là lựa chọn tốt nhất để cân bằng cả hai.
 
-### 3. Tại sao V2 tốt hơn hoặc kém hơn V1? Số liệu thực từ benchmark:
+### 3. Tại sao V2 tốt hơn hoặc kém hơn V1? Số liệu thực từ benchmark (sau khi có chunking):
 
-| Metric | V1 (Base) | V2 (Optimized) | Delta |
+| Metric | V1 (chunk=500) | V2 (chunk=200) | Delta |
 |---|---|---|---|
-| Avg Score (LLM Judge) | **4.44** | 4.16 | **-0.28** |
-| Hit Rate | 0.94 | **0.96** | +0.02 |
-| MRR | **0.935** | 0.90 | -0.035 |
-| Cost/case | $0.0041 | **$0.0038** | -$0.0003 |
-| Avg Latency | 2.71s | **2.56s** | -0.15s |
+| Avg Score (LLM Judge) | **4.62** | 4.51 | -0.12 |
+| Hit Rate | **0.98** | **0.98** | 0.00 |
+| MRR | **0.960** | 0.943 | -0.017 |
+| Agreement Rate | **0.944** | 0.918 | -0.026 |
+| Cost/case | $0.0024 | **$0.0023** | -$0.0001 |
+| Total Time | **44.1s** | 51.2s | +7.1s |
 
-**Nhận xét:** V2 có Hit Rate cao hơn nhưng score tổng thể thấp hơn V1 → Release Gate ra quyết định **BLOCK**. Nguyên nhân có thể là keyword reranking của V2 đôi khi ưu tiên documents có nhiều từ khóa trùng nhau nhưng ít liên quan về mặt ngữ nghĩa, dẫn đến context kém chất lượng hơn. Đây là điểm cần cải thiện — nên dùng cross-encoder reranking thay vì keyword overlap để đánh giá relevance chính xác hơn.
+**Nhận xét:** Với chunking thực, V2 vẫn có score thấp hơn V1 dù chunk nhỏ hơn → Release Gate ra quyết định **WARN** (cải thiện so với BLOCK trước đó). Lý do V2 không vượt V1 là keyword reranking không chính xác về mặt ngữ nghĩa: nó ưu tiên chunk có nhiều từ trùng với query nhưng chunk đó chưa chắc chứa thông tin liên quan nhất. Hướng cải thiện: dùng cross-encoder reranking hoặc MMR (Maximal Marginal Relevance) để đa dạng hóa context thay vì chỉ dựa vào từ khóa.
 
 ### 4. Vấn đề khi connect Vector DB với async agent?
 
@@ -79,11 +85,11 @@ ChromaDB in-memory client không có vấn đề với asyncio vì các thao tá
   Khải  → Xây RAG agent thực (agent/)
 
 [GĐ2 — Phụ thuộc GĐ1]
-  Nhật  → Dual LLM Judge: GPT-4o + Claude, tính Cohen's Kappa
+  Nhật  → Dual LLM Judge: GPT-4o + Gemini, tính Cohen's Kappa
   Tấn   → Retrieval Eval (Hit Rate, MRR) + Async Runner
 
 [GĐ3 — Phụ thuộc GĐ2]
-  Thành → Regression Release Gate: V1 vs V2 → BLOCK
+  Thành → Regression Release Gate: V1 vs V2 → WARN
   Sơn   → Phân tích 5 Whys từ kết quả benchmark
 
 [GĐ4]
@@ -94,12 +100,13 @@ ChromaDB in-memory client không có vấn đề với asyncio vì các thao tá
 
 | Metric | Giá trị |
 |---|---|
-| Avg LLM Judge Score | 4.16 / 5.0 |
-| Hit Rate | 96% |
-| MRR | 0.90 |
-| Agreement Rate (Cohen's Kappa) | 0.9319 |
-| Total Cost | $0.1924 |
-| Total Time | 978.71s (~16 phút) |
+| Avg LLM Judge Score | 4.51 / 5.0 |
+| Hit Rate | 98% |
+| MRR | 0.943 |
+| Agreement Rate | 0.918 |
+| Total Cost | $0.1134 |
+| Total Time | 51.2s |
+| Release Gate | WARN |
 
 ---
 
