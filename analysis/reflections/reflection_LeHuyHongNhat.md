@@ -159,7 +159,7 @@ has_position_bias = (result_ab["winner"] != mirror(result_ba["winner"]))
 
 **Vấn đề:** Khi hai judge lệch nhau > 1 điểm (`|score_GPT - score_Gemini| > 1`), lấy trung bình đơn giản sẽ cho kết quả sai.
 
-**Giải pháp:** Gọi GPT-5 lần thứ 3 với ngữ cảnh "tie-breaker" và lấy điểm của lần này làm điểm cuối cùng:
+**Giải pháp:** Gọi lại GPT judge (`gpt-4o`) lần thứ 3 với ngữ cảnh "tie-breaker" và lấy điểm của lần này làm điểm cuối cùng:
 
 ```python
 if abs(score_a - score_b) > 1.0:
@@ -203,17 +203,17 @@ Nếu chỉ xem điểm LLM-Judge (`avg_score`), model có thể bị fine-tune 
 
 ---
 
-## 4. Trade-off: GPT-5 vs GPT-4o-mini
+## 4. Trade-off: GPT-4o vs GPT-4o-mini
 
-| Tiêu chí | GPT-5 | GPT-4o-mini |
+| Tiêu chí | GPT-4o | GPT-4o-mini |
 |---|---|---|
-| Giá Input | $0.00125/1k tokens | $0.00015/1k tokens |
-| Giá Output | $0.01000/1k tokens | $0.00060/1k tokens |
-| Chất lượng suy luận | ⭐⭐⭐⭐⭐ | ⭐⭐⭐ |
+| Giá Input | $0.005/1k tokens | $0.00015/1k tokens |
+| Giá Output | $0.015/1k tokens | $0.00060/1k tokens |
+| Chất lượng suy luận | ⭐⭐⭐⭐ | ⭐⭐⭐ |
 | Tốc độ | Trung bình | Nhanh |
 | Phù hợp cho | Judge, Tie-breaker | Agent generation |
 
-**Quyết định thiết kế:** Dùng GPT-5 làm Judge (cần độ chính xác cao, số lần gọi ít hơn Agent) và GPT-4o-mini cho Agent generation (gọi nhiều lần, cần tiết kiệm chi phí).
+**Quyết định thiết kế:** Dùng GPT-4o làm Judge chính; Gemini dùng cho đối chiếu chéo và có fallback về `gemini-2.5-pro` khi model chính lỗi. Agent generation dùng GPT-4o-mini để tối ưu chi phí khi gọi số lượng lớn.
 
 ---
 
@@ -268,36 +268,46 @@ Việc implement Dual LLM Judge với Cohen's Kappa và Release Gate multi-crite
 3. **Không deploy chỉ dựa vào 1 metric** → Multi-criteria gate để bảo vệ production
 4. **Phát hiện bias hệ thống** → Position Bias check để đảm bảo đánh giá công bằng
 
-Toàn bộ pipeline chạy async với `asyncio.Semaphore(5)` giúp xử lý 50 cases trong vòng ~60 giây thay vì ~10 phút nếu chạy tuần tự.
+Toàn bộ pipeline chạy async với `asyncio.Semaphore(5)`; theo run gần nhất trong `reports/summary.json`, hệ thống xử lý 50 cases trong **51.18 giây** (đạt yêu cầu < 2 phút của rubric).
 
 ---
 
 ## 7. Kết quả thực nghiệm và tác động
 
-Số liệu thực từ `reports/summary.json` (run gần nhất):
+Số liệu thực từ `reports/summary.json` (timestamp `2026-04-21 21:50:13`):
 
 | Chỉ số | Giá trị |
 |---|---|
-| `avg_score` | 4.16 |
-| `hit_rate` | 0.96 |
-| `mrr` | 0.90 |
-| `agreement_rate` | 0.9319 |
-| `total_cost_usd` | 0.1924 |
-| `total_time_seconds` | 978.71 |
-| `regression decision` | BLOCK |
+| `avg_score` | 4.505 |
+| `hit_rate` | 0.98 |
+| `mrr` | 0.9433 |
+| `agreement_rate` | 0.9178 |
+| `total_cost_usd` | 0.1134 |
+| `total_time_seconds` | 51.18 |
+| `regression decision` | WARN |
+
+Từ `reports/regression_report.json`, so sánh V1 vs V2:
+
+| Chỉ số delta | Giá trị |
+|---|---|
+| `score_delta` | -0.1167 |
+| `hit_rate_delta` | 0.0 |
+| `mrr_delta` | -0.0167 |
+| `cost_delta` | -0.0069 |
+| Gate decision | WARN |
 
 Ý nghĩa kỹ thuật:
-- Agreement cao (0.9319) cho thấy hai judge có mức đồng thuận tốt, giảm rủi ro đánh giá đơn lẻ.
-- Retrieval metrics cao (`hit_rate`, `mrr`) xác nhận truy xuất tốt hơn là chỉ nhìn điểm generation.
-- Release Gate trả `BLOCK` khi delta không đạt ngưỡng, chứng minh pipeline có khả năng chặn bản cập nhật kém chất lượng.
+- Agreement duy trì cao (`0.9178`) cho thấy hai judge vẫn có đồng thuận tốt trong run thật.
+- Retrieval metrics cao (`hit_rate=0.98`, `mrr=0.9433`) xác nhận chất lượng retrieval ổn định.
+- Release Gate trả `WARN` thay vì `APPROVE/BLOCK`: V2 rẻ hơn nhưng điểm chất lượng giảm nhẹ, nên cần review thủ công trước khi phát hành.
 
 ---
 
 ## 8. Giải trình lựa chọn model judge
 
-Theo kế hoạch ban đầu, nhóm cân nhắc cặp GPT + Claude. Trong quá trình triển khai thực tế, tôi dùng cặp GPT + Gemini để bảo đảm:
+Theo kế hoạch ban đầu, nhóm cân nhắc cặp GPT + Claude. Trong triển khai thực tế ở repository hiện tại, tôi dùng cặp GPT + Gemini để bảo đảm:
 - Đa dạng hóa judge (không cùng họ model).
-- Độ sẵn sàng API ổn định trong môi trường chạy lab tại thời điểm benchmark.
+- Độ sẵn sàng API ổn định trong môi trường chạy lab tại thời điểm benchmark; khi Gemini chính lỗi có fallback sang `gemini-2.5-pro`.
 - Giữ đúng yêu cầu rubric: có từ 2 judge, có agreement, có conflict resolution tự động.
 
 Tôi vẫn giữ thiết kế mở để có thể thay Gemini bằng Claude trong cùng interface judge nếu team cần đối chiếu chéo thêm.
