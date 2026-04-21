@@ -2,9 +2,9 @@ import os
 import json
 import asyncio
 import random
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
-# Lightweight implementation that attempts to call OpenAI (gpt-4o) and Google Gemini (gemini-3.1-pro-preview).
+# Lightweight implementation that attempts to call OpenAI (gpt-4o) and Google Gemini (gemini-2.5-flash).
 # If SDKs are not available at runtime, falls back to a deterministic mock to keep behavior predictable.
 
 try:
@@ -22,12 +22,13 @@ except Exception:
 
 
 class LLMJudge:
-    def __init__(self, gpt_model: str = "gpt-4o", gemini_model: str = "gemini-3.1-pro-preview", verbosity: str = "high"):
+    def __init__(self, gpt_model: str = "gpt-4o", gemini_model: str = "gemini-2.5-flash", verbosity: str = "high"):
         self.gpt_model = gpt_model
         self.gemini_model = gemini_model
         self.verbosity = verbosity
         self.openai_key = os.getenv("OPENAI_API_KEY")
-        self.gemini_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
+        self.gemini_key = os.getenv(
+            "GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
 
         # Modern AsyncOpenAI client (openai >= 1.0)
         self._openai_client = None
@@ -35,10 +36,14 @@ class LLMJudge:
             self._openai_client = AsyncOpenAI(api_key=self.openai_key)
 
         if genai and self.gemini_key:
-            genai.configure(api_key=self.gemini_key)
+            genai_module: Any = genai
+            configure_fn = getattr(genai_module, "configure", None)
+            if callable(configure_fn):
+                configure_fn(api_key=self.gemini_key)
 
         # Models that do NOT support temperature parameter
-        self._no_temperature_models = {"o1", "o1-mini", "o3", "o3-mini", "o4-mini"}
+        self._no_temperature_models = {
+            "o1", "o1-mini", "o3", "o3-mini", "o4-mini"}
 
         # Rubric for evaluating the answers based on multiple criteria
         self.rubric_prompt = (
@@ -55,44 +60,54 @@ class LLMJudge:
         )
 
         if not self._openai_client:
-            print(f"   ❌ [LLMJudge] OpenAI client chưa được khởi tạo (thiếu OPENAI_API_KEY?) — dùng MOCK SCORE")
+            print(
+                f"   ❌ [LLMJudge] OpenAI client chưa được khởi tạo (thiếu OPENAI_API_KEY?) — dùng MOCK SCORE")
             return _mock_score(answer, ground_truth, provider="gpt-mock")
 
         # Kiểm tra model có hỗ trợ temperature không
-        supports_temp = not any(m in self.gpt_model.lower() for m in self._no_temperature_models)
-        create_kwargs = dict(
-            model=self.gpt_model,
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=512,
-        )
-        if supports_temp:
-            create_kwargs["temperature"] = 0
-
+        supports_temp = not any(m in self.gpt_model.lower()
+                                for m in self._no_temperature_models)
         last_err = None
         for attempt in range(max_retries):
             try:
-                resp = await self._openai_client.chat.completions.create(**create_kwargs)
-                content = resp.choices[0].message.content
+                if supports_temp:
+                    resp = await self._openai_client.chat.completions.create(
+                        model=self.gpt_model,
+                        messages=[{"role": "user", "content": prompt}],
+                        max_tokens=512,
+                        temperature=0,
+                    )
+                else:
+                    resp = await self._openai_client.chat.completions.create(
+                        model=self.gpt_model,
+                        messages=[{"role": "user", "content": prompt}],
+                        max_tokens=512,
+                    )
+                content = resp.choices[0].message.content or ""
                 p_tokens = resp.usage.prompt_tokens if resp.usage else 0
                 c_tokens = resp.usage.completion_tokens if resp.usage else 0
                 parsed = _parse_json_like(content)
                 parsed.setdefault("tokens", p_tokens + c_tokens)
-                parsed.setdefault("cost_usd", _estimate_cost(self.gpt_model, p_tokens, c_tokens))
+                parsed.setdefault("cost_usd", _estimate_cost(
+                    self.gpt_model, p_tokens, c_tokens))
                 return parsed
             except OpenAIRateLimitError as e:
                 last_err = e
                 wait = min(60, (2 ** attempt) + random.uniform(0, 1))
-                print(f"   ⚠️  [LLMJudge] GPT rate limit (attempt {attempt+1}/{max_retries}), chờ {wait:.1f}s...")
+                print(
+                    f"   ⚠️  [LLMJudge] GPT rate limit (attempt {attempt+1}/{max_retries}), chờ {wait:.1f}s...")
                 await asyncio.sleep(wait)
             except Exception as e:
-                print(f"   ⚠️  [LLMJudge] GPT ({self.gpt_model}) thất bại: {type(e).__name__}: {e}")
+                print(
+                    f"   ⚠️  [LLMJudge] GPT ({self.gpt_model}) thất bại: {type(e).__name__}: {e}")
                 break
 
         # Tất cả attempts đều thất bại → dùng mock
-        print(f"   ❌ [LLMJudge] Không thể gọi GPT ({self.gpt_model}) — dùng MOCK SCORE (kết quả không đáng tin cậy!)")
+        print(
+            f"   ❌ [LLMJudge] Không thể gọi GPT ({self.gpt_model}) — dùng MOCK SCORE (kết quả không đáng tin cậy!)")
         return _mock_score(answer, ground_truth, provider="gpt-mock")
 
-    async def _call_gemini(self, question: str, answer: str, ground_truth: str, model_override: str = None) -> Dict[str, Any]:
+    async def _call_gemini(self, question: str, answer: str, ground_truth: str, model_override: Optional[str] = None) -> Dict[str, Any]:
         model = model_override or self.gemini_model
         prompt = (
             f"{self.rubric_prompt}\nQUESTION: {question}\nANSWER: {answer}\nGROUND_TRUTH: {ground_truth}\nRespond only with valid JSON."
@@ -103,7 +118,12 @@ class LLMJudge:
             try:
                 # genai.GenerativeModel().generate_content() là API chính thức và đồng bộ; wrap in thread
                 def _generate():
-                    gemini_model_obj = genai.GenerativeModel(model)
+                    genai_module: Any = genai
+                    model_cls = getattr(genai_module, "GenerativeModel", None)
+                    if model_cls is None:
+                        raise RuntimeError(
+                            "google.generativeai.GenerativeModel is unavailable")
+                    gemini_model_obj = model_cls(model)
                     return gemini_model_obj.generate_content(prompt)
 
                 resp = await asyncio.to_thread(_generate)
@@ -127,11 +147,13 @@ class LLMJudge:
 
                 parsed = _parse_json_like(content or "")
                 parsed.setdefault("tokens", p_tokens + c_tokens)
-                parsed.setdefault("cost_usd", _estimate_cost(model, p_tokens, c_tokens))
+                parsed.setdefault("cost_usd", _estimate_cost(
+                    model, p_tokens, c_tokens))
                 parsed["_model_used"] = model
                 return parsed
             except Exception as e:
-                print(f"   ⚠️  [LLMJudge] Gemini ({model}) thất bại: {type(e).__name__}: {e}")
+                print(
+                    f"   ⚠️  [LLMJudge] Gemini ({model}) thất bại: {type(e).__name__}: {e}")
 
         # Fallback sang gemini-2.5-pro nếu primary model thất bại
         _FALLBACK_GEMINI = "gemini-2.5-pro"
@@ -140,15 +162,18 @@ class LLMJudge:
             return await self._call_gemini(question, answer, ground_truth, model_override=_FALLBACK_GEMINI)
 
         # Tất cả Gemini paths đều thất bại → dùng mock
-        print(f"   ❌ [LLMJudge] Không thể gọi Gemini ({model}) — dùng MOCK SCORE (kết quả không đáng tin cậy!)")
+        print(
+            f"   ❌ [LLMJudge] Không thể gọi Gemini ({model}) — dùng MOCK SCORE (kết quả không đáng tin cậy!)")
         return _mock_score(answer, ground_truth, provider="gemini-mock")
 
     async def evaluate_multi_judge(self, question: str, answer: str, ground_truth: str) -> Dict[str, Any]:
         """Call both judges concurrently, compute aggregated score, agreement and handle large disagreements.
         Returns a dict with final_score, agreement_rate, individual_scores, reasonings, tokens_used, cost_usd, conflict_resolved.
         """
-        a_task = asyncio.create_task(self._call_gpt(question, answer, ground_truth))
-        b_task = asyncio.create_task(self._call_gemini(question, answer, ground_truth))
+        a_task = asyncio.create_task(
+            self._call_gpt(question, answer, ground_truth))
+        b_task = asyncio.create_task(
+            self._call_gemini(question, answer, ground_truth))
         a_res, b_res = await asyncio.gather(a_task, b_task)
 
         score_a = float(a_res.get("score", 0))
@@ -172,7 +197,8 @@ class LLMJudge:
             tie_break_reasoning = tb.get("reasoning")
 
         total_tokens = _sum_optional(a_res.get("tokens"), b_res.get("tokens"))
-        total_cost = _sum_optional(a_res.get("cost_usd"), b_res.get("cost_usd"))
+        total_cost = _sum_optional(
+            a_res.get("cost_usd"), b_res.get("cost_usd"))
 
         return {
             "final_score": avg_score,
@@ -200,10 +226,14 @@ class LLMJudge:
 
         # Ask GPT and Gemini for both orders
         tasks = [
-            asyncio.create_task(self._call_gpt(question + "\nCOMPARE", ans_ab, ground_truth)),
-            asyncio.create_task(self._call_gemini(question + "\nCOMPARE", ans_ab, ground_truth)),
-            asyncio.create_task(self._call_gpt(question + "\nCOMPARE_REVERSED", ans_ba, ground_truth)),
-            asyncio.create_task(self._call_gemini(question + "\nCOMPARE_REVERSED", ans_ba, ground_truth)),
+            asyncio.create_task(self._call_gpt(
+                question + "\nCOMPARE", ans_ab, ground_truth)),
+            asyncio.create_task(self._call_gemini(
+                question + "\nCOMPARE", ans_ab, ground_truth)),
+            asyncio.create_task(self._call_gpt(
+                question + "\nCOMPARE_REVERSED", ans_ba, ground_truth)),
+            asyncio.create_task(self._call_gemini(
+                question + "\nCOMPARE_REVERSED", ans_ba, ground_truth)),
         ]
         r1, r2, r3, r4 = await asyncio.gather(*tasks)
 
@@ -234,7 +264,7 @@ def _parse_json_like(text: str) -> Dict[str, Any]:
     end = text.rfind("}")
     if start != -1 and end != -1 and end > start:
         try:
-            return json.loads(text[start : end + 1])
+            return json.loads(text[start: end + 1])
         except Exception:
             pass
     # Fallback: heuristic extraction
@@ -281,6 +311,17 @@ def _estimate_cost(model: str, prompt_tokens: Any = 0, completion_tokens: Any = 
         else:
             in_rate = 0.00250
             out_rate = 0.01500
+        return round((p / 1000.0) * in_rate + (c / 1000.0) * out_rate, 6)
+
+    if "gemini-2.5-flash" in model.lower():
+        # Gemini 2.5 Flash: Input $0.30/1M (≤200k), Output $2.50/1M (≤200k tokens)
+        # Long-context (>200k): Input $0.60/1M, Output $3.75/1M
+        if p <= 200000:
+            in_rate = 0.00030
+            out_rate = 0.00250
+        else:
+            in_rate = 0.00060
+            out_rate = 0.00375
         return round((p / 1000.0) * in_rate + (c / 1000.0) * out_rate, 6)
 
     # Fallback rates for other models (e.g. gpt-4o, gpt-4o-mini)

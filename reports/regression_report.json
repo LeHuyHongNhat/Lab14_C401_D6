@@ -3,59 +3,59 @@
     "metadata": {
       "version": "Agent_V1_Base",
       "total": 50,
-      "timestamp": "2026-04-21 16:51:23"
+      "timestamp": "2026-04-21 19:50:50"
     },
     "metrics": {
-      "avg_score": 4.4417,
-      "hit_rate": 0.94,
-      "mrr": 0.935,
-      "agreement_rate": 0.9489,
-      "total_cost_usd": 0.205
+      "avg_score": 4.551,
+      "hit_rate": 1.0,
+      "mrr": 0.9667,
+      "agreement_rate": 0.9578,
+      "total_cost_usd": 0.1221
     },
     "performance": {
-      "total_time_seconds": 784.23,
-      "avg_latency_per_case": 2.71,
-      "total_cost_usd": 0.205,
-      "cost_per_case_usd": 0.0041
+      "total_time_seconds": 81.15,
+      "avg_latency_per_case": 1.61,
+      "total_cost_usd": 0.1221,
+      "cost_per_case_usd": 0.0024
     }
   },
   "v2_summary": {
     "metadata": {
       "version": "Agent_V2_Optimized",
       "total": 50,
-      "timestamp": "2026-04-21 17:07:41",
+      "timestamp": "2026-04-21 19:52:03",
       "regression": {
-        "v1_score": 4.4417,
-        "v2_score": 4.16,
-        "decision": "BLOCK"
+        "v1_score": 4.551,
+        "v2_score": 4.64,
+        "decision": "APPROVE"
       }
     },
     "metrics": {
-      "avg_score": 4.16,
-      "hit_rate": 0.96,
-      "mrr": 0.9,
-      "agreement_rate": 0.9319,
-      "total_cost_usd": 0.1924
+      "avg_score": 4.64,
+      "hit_rate": 1.0,
+      "mrr": 1.0,
+      "agreement_rate": 0.965,
+      "total_cost_usd": 0.1221
     },
     "performance": {
-      "total_time_seconds": 978.71,
-      "avg_latency_per_case": 2.56,
-      "total_cost_usd": 0.1924,
-      "cost_per_case_usd": 0.0038
+      "total_time_seconds": 73.25,
+      "avg_latency_per_case": 1.64,
+      "total_cost_usd": 0.1221,
+      "cost_per_case_usd": 0.0024
     }
   },
   "gate": {
-    "score_delta": -0.2817,
-    "hit_rate_delta": 0.02,
-    "mrr_delta": -0.035,
-    "cost_delta": -0.0126,
+    "score_delta": 0.089,
+    "hit_rate_delta": 0.0,
+    "mrr_delta": 0.0333,
+    "cost_delta": 0.0,
     "latency_delta": 0,
-    "decision": "BLOCK",
+    "decision": "APPROVE",
     "reasons": [
-      "Score giảm -0.282",
-      "Hit Rate tăng +0.020",
-      "Cost giảm 0.012600 USD"
+      "Score tăng +0.089",
+      "Hit Rate tăng +0.000",
+      "Cost giảm 0.000000 USD"
     ]
   },
-  "timestamp": "2026-04-21 17:07:41"
+  "timestamp": "2026-04-21 19:52:03"
 }
