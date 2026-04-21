@@ -6,6 +6,7 @@ reports/
 !reports/
 reports/*
 !reports/*.md
+data/golden_set.jsonl
+.vscode/
 .venv
 khanhnq_todo.md
-
